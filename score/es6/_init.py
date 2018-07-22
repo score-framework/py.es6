@@ -66,8 +66,9 @@ def init(confdict, ctx=None):
         the configured :mod:`score.ctx` module (if there is one). The default
         value allows one to conveniently query the index:
 
-        >>> for knight in ctx.es.client.search(User, 'name:sir*')
-        ...     print(knight.name)
+        >>> response = ctx.es.client.search(body={"query": {"match_all": {}}})
+        >>> for hit in response['hits']['hits']:
+        ...     print(hit['_source']['title'])
 
     :confkey:`ctx.extensions`
         Additional extension classes for the context proxy.
