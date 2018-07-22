@@ -27,8 +27,10 @@
 from weakref import WeakKeyDictionary
 from elasticsearch import Elasticsearch
 from score.init import (
-    ConfiguredModule, parse_list, parse_bool, extract_conf,
-    parse_time_interval)
+    ConfiguredModule, InitializationError, parse_list, parse_bool,
+    extract_conf, parse_time_interval, parse_dotted_path)
+from .ctx import CtxProxy
+from .dsl import DslExtension
 
 
 defaults = {
@@ -77,7 +79,14 @@ def init(confdict, ctx=None):
     if 'index' not in conf:
         conf['index'] = 'score'
     keep_source = parse_bool(conf['keep_source'])
-    ctx_extensions = parse_list(conf['ctx.extensions'])
+    ctx_extensions = [DslExtension]
+    for path in parse_list(conf['ctx.extensions']):
+        class_ = parse_dotted_path(path)
+        if not issubclass(class_, CtxProxy):
+            raise InitializationError(
+                'score.es6',
+                'Ctx extensions classes must be sub-classes of CtxProxy')
+        ctx_extensions.append(class_)
     es_conf = ConfiguredEs6Module(connect_kwargs, conf['index'], keep_source,
                                   ctx_extensions)
     if ctx and conf['ctx.member'] not in (None, 'None'):
@@ -117,7 +126,7 @@ class ConfiguredEs6Module(ConfiguredModule):
             self.__ctx_proxy = CtxProxy
         else:
             name = 'ConfiguredEs6CtxProxy'
-            bases = (CtxProxy,) + tuple(self.__ctx_proxy_extensions)
+            bases = tuple(self.__ctx_proxy_extensions)
             self.__ctx_proxy = type(name, bases, {})
         self.client
 
@@ -137,6 +146,8 @@ class ConfiguredEs6Module(ConfiguredModule):
 
     def register_ctx_proxy_extension(self, extension):
         assert not self._finalized
+        if not issubclass(extension, CtxProxy):
+            raise ValueError('Extension class must be a sub-class of CtxProxy')
         self.__ctx_proxy_extensions.append(extension)
 
     def get_ctx_proxy(self, ctx):
@@ -144,14 +155,3 @@ class ConfiguredEs6Module(ConfiguredModule):
             return self.__ctx_proxies[ctx]
         self.__ctx_proxies[ctx] = self.__ctx_proxy(self, ctx)
         return self.__ctx_proxies[ctx]
-
-
-class CtxProxy:
-
-    def __init__(self, conf, ctx):
-        self._es6_conf = conf
-        self._ctx = ctx
-
-    @property
-    def client(self):
-        return self._es6_conf.client
